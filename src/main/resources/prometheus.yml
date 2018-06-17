@@ -1,0 +1,6 @@
+## Prometheus Config (For details, see https://prometheus.io/docs/prometheus/latest/getting_started/#configuring-prometheus-to-monitor-itself)
+scrape_configs:
+  - job_name: 'spring'
+	metrics_path: '/actuator/prometheus'
+	static_configs:
+	  - targets: ['localhost:9090']
