@@ -9,7 +9,7 @@
 	<packaging>jar</packaging>
 
 	<name>actuator-demo</name>
-	<description>Demo project for Spring Boot</description>
+	<description>Spring Boot Actuator Demo Project</description>
 
 	<parent>
 		<groupId>org.springframework.boot</groupId>
