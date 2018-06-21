@@ -25,3 +25,4 @@
 /.nb-gradle/
 
 app.log
+app.log.*

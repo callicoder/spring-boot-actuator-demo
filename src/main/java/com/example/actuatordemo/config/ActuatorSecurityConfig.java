@@ -32,7 +32,7 @@ public class ActuatorSecurityConfig extends WebSecurityConfigurerAdapter {
                         .permitAll()
                     .requestMatchers(PathRequest.toStaticResources().atCommonLocations())
                         .permitAll()
-                    .antMatchers("/")
+                    .antMatchers("/", "/slowApi")
                         .permitAll()
                     .antMatchers("/**")
                         .authenticated()
