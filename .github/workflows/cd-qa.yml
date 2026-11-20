@@ -1,0 +1,29 @@
+name: Deploy QA
+
+# Pipeline CD para QA
+#   * Automático: CI OK en main (despliega el SHA construido).
+#   * Manual (rollback): gh workflow run cd-qa.yml -f image_tag=<sha-anterior>
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de imagen en ECR (p. ej. un SHA anterior para rollback)"
+        default: latest
+
+concurrency:
+  group: cd-qa
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+
+    with:
+      environment: qa
+      image_tag: ${{ inputs.image_tag }}

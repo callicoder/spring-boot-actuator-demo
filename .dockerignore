@@ -1,0 +1,21 @@
+# IDE / SO
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Artefactos de build locales
+target/
+build/
+*.jar
+*.war
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Infraestructura
+CI-CD/deploy/terraform/
+CI-CD/deploy/scripts/
+CI-CD/deploy/docker-compose.yml

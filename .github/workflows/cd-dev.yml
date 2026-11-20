@@ -1,0 +1,29 @@
+name: Deploy DEV
+
+# Pipeline CD para DEV
+#   * Automático: CI OK en develop (despliega el SHA construido).
+#   * Manual (rollback): gh workflow run cd-dev.yml -f image_tag=<sha-anterior>
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop]
+
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de imagen en ECR (p. ej. un SHA anterior para rollback)"
+        default: latest
+
+concurrency:
+  group: cd-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+
+    with:
+      environment: dev
+      image_tag: ${{ inputs.image_tag }}

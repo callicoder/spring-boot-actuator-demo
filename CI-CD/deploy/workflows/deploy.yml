@@ -1,0 +1,69 @@
+name: Reusable Deploy
+
+# Cada entorno de GitHub (dev | qa | production) debe definir sus variables
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Entorno de GitHub que aplica sus protecciones y variables"
+        required: true
+        type: string
+      image_tag:
+        description: "Tag de imagen en ECR; vacío = SHA que construyó CI"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # OIDC hacia AWS
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    # Solo despliega si CI terminó OK (los disparos manuales siempre pasan).
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # Automático: SHA del commit que CI construyó (CI publica type=sha,format=long).
+    # Manual (rollback): input image_tag; si no hay nada, latest (último build de main).
+    env:
+      TAG: ${{ github.event.workflow_run.head_sha || inputs.image_tag || 'latest' }}
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Descarga la task definition ACTIVA y quita los campos de solo lectura
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_TASK_FAMILY }}" \
+            --query taskDefinition \
+            | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                      .compatibilities, .registeredAt, .registeredBy, .enableFaultInjection)' \
+            > task-definition.json
+
+      - name: Render task definition with image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ vars.ECS_CONTAINER_NAME }}
+          image: ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ env.TAG }}
+
+      # Rolling update: registra la nueva task def, actualiza el servicio y espera a que quede estable
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ vars.ECS_CLUSTER_NAME }}
+          service: ${{ vars.ECS_SERVICE_NAME }}
+          wait-for-service-stability: true

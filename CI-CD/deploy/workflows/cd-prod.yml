@@ -1,0 +1,32 @@
+name: Deploy PROD
+
+# Pipeline CD para PROD
+#   * Automático: CI OK en un tag v* (despliega el SHA construido).
+#     El environment "production" debe tener reglas de protección (revisores
+#     requeridos): el job queda en espera hasta que alguien apruebe.
+#   * Manual (hotfix/rollback): gh workflow run cd-prod.yml -f image_tag=<tag-o-sha>
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    tags: ["v*"]
+
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de imagen en ECR (SHA o tag de release para rollback)"
+        default: latest
+
+# En PROD no se cancela un despliegue en curso: se encola tras el anterior.
+concurrency:
+  group: cd-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable/deploy.yml
+
+    with:
+      environment: production
+      image_tag: ${{ inputs.image_tag }}

@@ -1,0 +1,131 @@
+name: CI
+
+# Pipeline CI
+# tests -> build -> escaneo Trivy -> push imagen a ECR
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "fix/**"
+    tags: ["v*"]
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    branches:
+      - main
+      - develop
+      - "feature/**"
+      - "fix/**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+  DOCKERFILE: CI-CD/deploy/Dockerfile
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+
+      - run: ./mvnw -B verify
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: read
+      id-token: write # OIDC hacia AWS
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          load: true
+          push: false
+          tags: ${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Escanear vulnerabilidades con Trivy
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # AWS solo cuando se publica la imagen
+      - name: Configure AWS credentials (OIDC)
+        if: >-
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/tags/v')
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: >-
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/tags/v')
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Generar tags automáticamente
+      - name: Docker metadata
+        if: >-
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/tags/v')
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Push image
+        if: >-
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          LOCAL_IMAGE="${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+
+            docker tag "$LOCAL_IMAGE" "$tag"
+            docker push "$tag"
+
+          done <<< "$TAGS"

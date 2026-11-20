@@ -26,3 +26,8 @@
 
 app.log
 app.log.*
+
+### Terraform ###
+.terraform/
+*.tfstate
+*.tfstate.*
